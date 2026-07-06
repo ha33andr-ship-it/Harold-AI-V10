@@ -1,1 +1,11 @@
-{% extends 'base.html' %}{% block content %}<h1>Stock Scanner</h1><table><tr><th>Rank</th><th>Symbol</th><th>Score</th><th>Action</th><th>Reason</th></tr>{% for r in scanner %}<tr><td>{{r.rank}}</td><td>{{r.symbol}}</td><td>{{r.score}}</td><td>{{r.action}}</td><td>{{r.reason}}</td></tr>{% endfor %}</table>{% endblock %}
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "main:app"]
