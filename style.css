@@ -1,0 +1,11 @@
+{% extends 'base.html' %}{% block content %}
+<h1>AI Paper Trading Dashboard</h1>
+<section class='cards'>
+<div class='card'><span>Portfolio Value</span><strong>${{ '%.2f'|format(portfolio.account.equity) }}</strong></div>
+<div class='card'><span>Cash</span><strong>${{ '%.2f'|format(portfolio.account.cash) }}</strong></div>
+<div class='card'><span>Total P/L</span><strong>${{ '%.2f'|format(portfolio.account.total_pl) }}</strong></div>
+<div class='card'><span>Return</span><strong>{{ portfolio.account.total_return_pct }}%</strong></div>
+</section>
+<h2>Top AI Trade Ideas</h2><table><tr><th>Rank</th><th>Symbol</th><th>Score</th><th>Action</th><th>Reason</th></tr>{% for r in scanner %}<tr><td>{{r.rank}}</td><td>{{r.symbol}}</td><td>{{r.score}}</td><td>{{r.action}}</td><td>{{r.reason}}</td></tr>{% endfor %}</table>
+<h2>Open Positions</h2>{% if portfolio.positions %}<table><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Value</th><th>P/L</th></tr>{% for p in portfolio.positions %}<tr><td>{{p.symbol}}</td><td>{{p.qty}}</td><td>${{p.avg_price}}</td><td>${{p.market_value}}</td><td>${{p.unrealized_pl}}</td></tr>{% endfor %}</table>{% else %}<p>No open positions yet.</p>{% endif %}
+{% endblock %}

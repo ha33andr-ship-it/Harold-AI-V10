@@ -1,0 +1,13 @@
+def scan_market():
+    # Starter scanner. V10.2 will replace this with live market data.
+    watchlist = [
+        ('NVDA', 94, 'BUY', 'Strong trend + high momentum'),
+        ('MSFT', 90, 'BUY', 'Large cap strength'),
+        ('AAPL', 84, 'WATCH', 'Good setup, waiting for confirmation'),
+        ('GOOG', 81, 'WATCH', 'Improving relative strength'),
+        ('SCHD', 76, 'HOLD', 'Dividend ETF stability'),
+    ]
+    return [
+        {'rank': i + 1, 'symbol': s, 'score': sc, 'action': a, 'reason': r}
+        for i, (s, sc, a, r) in enumerate(watchlist)
+    ]

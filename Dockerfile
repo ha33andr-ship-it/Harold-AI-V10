@@ -1,11 +1,1 @@
-FROM python:3.12-slim
-
-WORKDIR /app
-
-COPY . .
-
-RUN pip install --no-cache-dir -r requirements.txt
-
-EXPOSE 8080
-
-CMD exec gunicorn --bind :8080 --workers 1 --threads 8 app:app
+{% extends 'base.html' %}{% block content %}<h1>Stock Scanner</h1><table><tr><th>Rank</th><th>Symbol</th><th>Score</th><th>Action</th><th>Reason</th></tr>{% for r in scanner %}<tr><td>{{r.rank}}</td><td>{{r.symbol}}</td><td>{{r.score}}</td><td>{{r.action}}</td><td>{{r.reason}}</td></tr>{% endfor %}</table>{% endblock %}
