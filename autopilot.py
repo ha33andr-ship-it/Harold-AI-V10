@@ -1,6 +1,5 @@
 from paper_engine import portfolio, place_paper_trade, signal
-from market_scanner import scan_market, get_quote
-
+from market_scanner import scan_market, get_quote, analyze_symbol
 
 MIN_BUY_CONFIDENCE = 80
 
@@ -22,27 +21,47 @@ def manage_positions():
             continue
 
         current_price = float(quote["price"])
-        decision = signal(symbol, current_price)
+        position_signal = signal(symbol, current_price)
+        market_analysis = analyze_symbol(symbol)
 
-        if decision.get("action") == "SELL":
+        should_sell = False
+        sell_reason = ""
+
+        if position_signal.get("action") == "SELL":
+            should_sell = True
+            sell_reason = position_signal.get("reason", "Sell signal")
+
+        elif market_analysis.get("signal") == "AVOID":
+            should_sell = True
+            sell_reason = "Trend weakened: " + market_analysis.get("reason", "")
+
+        elif market_analysis.get("rsi", 0) >= 75:
+            should_sell = True
+            sell_reason = "RSI overbought"
+
+        if should_sell:
             trade = place_paper_trade(
                 symbol=symbol,
                 action="SELL",
                 price=current_price,
-                confidence=decision.get("confidence", 85),
-                reason="Auto manage: " + decision.get("reason", "")
+                confidence=position_signal.get("confidence", 85),
+                reason="Auto SELL: " + sell_reason
             )
 
             actions.append({
                 "symbol": symbol,
-                "decision": decision,
+                "action": "SELL",
+                "price": current_price,
+                "reason": sell_reason,
                 "trade_result": trade
             })
         else:
             actions.append({
                 "symbol": symbol,
-                "decision": decision,
-                "trade_result": None
+                "action": "HOLD",
+                "price": current_price,
+                "signal": position_signal,
+                "analysis": market_analysis
             })
 
     return {
@@ -62,15 +81,6 @@ def run_autopilot():
         if r.get("signal") == "BUY" and r.get("confidence", 0) >= MIN_BUY_CONFIDENCE
     ]
 
-    if not buys:
-        return {
-            "status": "completed",
-            "managed": managed,
-            "buy_attempt": None,
-            "reason": "No BUY signal above threshold",
-            "portfolio": portfolio()
-        }
-
     current_positions = {
         p["symbol"] for p in portfolio().get("positions", [])
     }
@@ -87,7 +97,7 @@ def run_autopilot():
             "status": "completed",
             "managed": managed,
             "buy_attempt": None,
-            "reason": "All top BUY candidates already held",
+            "reason": "No new BUY candidate available",
             "portfolio": portfolio()
         }
 
