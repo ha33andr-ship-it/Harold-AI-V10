@@ -1,5 +1,12 @@
 from flask import Flask, jsonify, request
-from paper_engine import portfolio, place_paper_trade, performance, reset_paper_account, signal
+from paper_engine import (
+    portfolio,
+    place_paper_trade,
+    performance,
+    reset_paper_account,
+    signal,
+)
+from market_scanner import get_quote, analyze_symbol, scan_market
 
 app = Flask(__name__)
 
@@ -7,11 +14,12 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return jsonify({
-        "status": "Harold AI V10.4 running",
+        "status": "Harold AI V10.5 running",
         "mode": "PAPER",
         "dashboard": "/dashboard",
         "portfolio_url": "/paper/portfolio",
-        "performance_url": "/paper/performance"
+        "performance_url": "/paper/performance",
+        "scan_url": "/scan"
     })
 
 
@@ -31,9 +39,25 @@ def trade_signal(symbol):
     return jsonify(signal(symbol, price))
 
 
+@app.route("/quote/<symbol>")
+def quote(symbol):
+    return jsonify(get_quote(symbol))
+
+
+@app.route("/analyze/<symbol>")
+def analyze(symbol):
+    return jsonify(analyze_symbol(symbol))
+
+
+@app.route("/scan")
+def scan():
+    return jsonify(scan_market())
+
+
 @app.route("/paper/trade", methods=["POST"])
 def paper_trade():
     data = request.get_json()
+
     return jsonify(place_paper_trade(
         symbol=data.get("symbol"),
         action=data.get("action"),
@@ -64,12 +88,15 @@ def dashboard():
     return """
     <html>
     <body style="font-family:Arial;padding:40px;">
-        <h1>🚀 Harold AI V10.4</h1>
+        <h1>🚀 Harold AI V10.5</h1>
         <h2>Paper Trading Dashboard</h2>
 
         <p><a href="/paper/portfolio">View Portfolio JSON</a></p>
         <p><a href="/paper/performance">View Performance JSON</a></p>
-        <p><a href="/signal/AAPL?price=240">Check AAPL Signal</a></p>
+        <p><a href="/scan">Run Market Scan</a></p>
+        <p><a href="/analyze/AAPL">Analyze AAPL</a></p>
+        <p><a href="/quote/AAPL">Quote AAPL</a></p>
+        <p><a href="/signal/AAPL?price=240">Check AAPL Position Signal</a></p>
 
         <hr>
 
