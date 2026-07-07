@@ -1,4 +1,8 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from flask import Flask, jsonify, request
+
 from paper_engine import (
     portfolio,
     place_paper_trade,
@@ -12,10 +16,24 @@ from autopilot import manage_positions, run_autopilot
 app = Flask(__name__)
 
 
+def market_is_open():
+    now = datetime.now(ZoneInfo("America/New_York"))
+
+    # Monday = 0, Friday = 4
+    if now.weekday() > 4:
+        return False
+
+    current_minutes = now.hour * 60 + now.minute
+    open_minutes = 9 * 60 + 30
+    close_minutes = 16 * 60
+
+    return open_minutes <= current_minutes <= close_minutes
+
+
 @app.route("/")
 def home():
     return jsonify({
-        "status": "Harold AI V11 running",
+        "status": "Harold AI V11.3 running",
         "mode": "PAPER",
         "dashboard": "/dashboard",
         "portfolio_url": "/paper/portfolio",
@@ -23,7 +41,8 @@ def home():
         "scan_url": "/scan",
         "auto_trade_url": "/auto-trade",
         "manage_url": "/manage",
-        "autopilot_url": "/autopilot"
+        "autopilot_url": "/autopilot",
+        "market_hours_guard": True
     })
 
 
@@ -98,6 +117,14 @@ def manage():
 
 @app.route("/autopilot")
 def autopilot():
+    if not market_is_open():
+        return jsonify({
+            "status": "market_closed",
+            "market": "NYSE / NASDAQ",
+            "timezone": "America/New_York",
+            "message": "Autopilot is waiting for the next market session."
+        })
+
     return jsonify(run_autopilot())
 
 
@@ -135,12 +162,12 @@ def dashboard():
     return """
     <html>
     <head>
-        <title>Harold AI V11 Dashboard</title>
+        <title>Harold AI V11.3 Dashboard</title>
     </head>
 
     <body style="font-family:Arial;padding:40px;max-width:900px;">
 
-        <h1>🚀 Harold AI V11</h1>
+        <h1>🚀 Harold AI V11.3</h1>
         <h2>Autonomous Paper Trading Dashboard</h2>
 
         <hr>
@@ -163,6 +190,8 @@ def dashboard():
         <p><a href="/auto-trade">🤖 Auto Buy Best Stock</a></p>
         <p><a href="/manage">🛡 Manage Open Positions</a></p>
         <p><a href="/autopilot">🚀 Run Full AutoPilot</a></p>
+
+        <p><b>Note:</b> Full AutoPilot only trades during normal U.S. market hours.</p>
 
         <hr>
 
@@ -203,6 +232,9 @@ def dashboard():
     </html>
     """
 
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
