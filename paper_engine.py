@@ -5,7 +5,6 @@ import copy
 
 DATA_DIR = Path("/tmp/harold_ai_data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-
 STATE_FILE = DATA_DIR / "paper_state.json"
 
 STARTING_BALANCE = 10000.00
@@ -18,17 +17,17 @@ DEFAULT_STATE = {
     "starting_balance": STARTING_BALANCE,
     "positions": {},
     "trades": [],
-    "equity_history": [
-        {
-            "time": datetime.now().isoformat(timespec="seconds"),
-            "equity": STARTING_BALANCE
-        }
-    ]
+    "equity_history": []
 }
 
 
 def _default_state():
-    return copy.deepcopy(DEFAULT_STATE)
+    state = copy.deepcopy(DEFAULT_STATE)
+    state["equity_history"] = [{
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "equity": STARTING_BALANCE
+    }]
+    return state
 
 
 def _save(state):
@@ -40,7 +39,6 @@ def _load():
         state = _default_state()
         _save(state)
         return state
-
     try:
         return json.loads(STATE_FILE.read_text())
     except Exception:
@@ -51,25 +49,21 @@ def _load():
 
 def _today_trade_count(state):
     today = date.today().isoformat()
-    return sum(1 for t in state["trades"] if t["time"].startswith(today))
+    return sum(1 for t in state.get("trades", []) if t.get("time", "").startswith(today))
 
 
 def _calculate_equity(state):
     invested = 0.0
-
-    for _, p in state["positions"].items():
-        market_price = float(p.get("last_price", p["avg_price"]))
-        invested += float(p["qty"]) * market_price
-
+    for p in state.get("positions", {}).values():
+        invested += float(p["qty"]) * float(p.get("last_price", p["avg_price"]))
     return float(state["cash"]) + invested
 
 
 def _record_equity(state):
-    equity = _calculate_equity(state)
     state.setdefault("equity_history", [])
     state["equity_history"].append({
         "time": datetime.now().isoformat(timespec="seconds"),
-        "equity": round(equity, 2)
+        "equity": round(_calculate_equity(state), 2)
     })
 
 
@@ -78,17 +72,19 @@ def portfolio():
     positions = []
     invested = 0.0
 
-    for symbol, p in state["positions"].items():
-        market_price = float(p.get("last_price", p["avg_price"]))
-        market_value = float(p["qty"]) * market_price
-        cost = float(p["qty"]) * float(p["avg_price"])
+    for symbol, p in state.get("positions", {}).items():
+        last_price = float(p.get("last_price", p["avg_price"]))
+        qty = float(p["qty"])
+        avg_price = float(p["avg_price"])
+        market_value = qty * last_price
+        cost = qty * avg_price
         invested += market_value
 
         positions.append({
             "symbol": symbol,
-            "qty": p["qty"],
-            "avg_price": round(float(p["avg_price"]), 2),
-            "last_price": round(market_price, 2),
+            "qty": qty,
+            "avg_price": round(avg_price, 2),
+            "last_price": round(last_price, 2),
             "market_value": round(market_value, 2),
             "unrealized_pl": round(market_value - cost, 2)
         })
@@ -105,7 +101,7 @@ def portfolio():
             "max_trades_per_day": MAX_TRADES_PER_DAY
         },
         "positions": positions,
-        "recent_trades": list(reversed(state["trades"][-25:]))
+        "recent_trades": list(reversed(state.get("trades", [])[-25:]))
     }
 
 
@@ -127,8 +123,7 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
         return {"status": "blocked", "reason": "Max trades per day reached"}
 
     equity = _calculate_equity(state)
-    max_dollars = equity * MAX_POSITION_SIZE_PCT
-    qty = int(max_dollars // price)
+    qty = int((equity * MAX_POSITION_SIZE_PCT) // price)
 
     if qty <= 0:
         return {"status": "blocked", "reason": "Not enough buying power"}
@@ -148,7 +143,6 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
             old_avg = float(pos["avg_price"])
             new_qty = old_qty + qty
             new_avg = ((old_qty * old_avg) + cost) / new_qty
-
             pos["qty"] = new_qty
             pos["avg_price"] = new_avg
             pos["last_price"] = price
@@ -168,9 +162,11 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
             return {"status": "blocked", "reason": "No position to sell"}
 
         sell_qty = min(qty, float(pos["qty"]))
-        proceeds = sell_qty * price
         avg_price = float(pos["avg_price"])
+        proceeds = sell_qty * price
+
         realized_pl = (price - avg_price) * sell_qty
+
         remaining = float(pos["qty"]) - sell_qty
 
         if remaining <= 0:
@@ -211,13 +207,12 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
 def performance():
     state = _load()
     trades = state.get("trades", [])
-
     sell_trades = [t for t in trades if t.get("action") == "SELL"]
-    closed_trades = len(sell_trades)
 
     wins = [float(t.get("realized_pl", 0)) for t in sell_trades if float(t.get("realized_pl", 0)) > 0]
     losses = [abs(float(t.get("realized_pl", 0))) for t in sell_trades if float(t.get("realized_pl", 0)) < 0]
 
+    closed_trades = len(sell_trades)
     realized_pl = sum(float(t.get("realized_pl", 0)) for t in sell_trades)
 
     win_rate = round((len(wins) / closed_trades) * 100, 2) if closed_trades else 0
@@ -225,17 +220,14 @@ def performance():
     avg_loss = round(sum(losses) / len(losses), 2) if losses else 0
     profit_factor = round(sum(wins) / sum(losses), 2) if sum(losses) > 0 else None
 
-    equity_history = state.get("equity_history", [])
-    max_drawdown = 0.0
     peak = STARTING_BALANCE
+    max_drawdown = 0.0
 
-    for point in equity_history:
-        equity = float(point["equity"])
-        if equity > peak:
-            peak = equity
-        drawdown = ((peak - equity) / peak) * 100 if peak else 0
-        if drawdown > max_drawdown:
-            max_drawdown = drawdown
+    for point in state.get("equity_history", []):
+        eq = float(point["equity"])
+        peak = max(peak, eq)
+        drawdown = ((peak - eq) / peak) * 100 if peak else 0
+        max_drawdown = max(max_drawdown, drawdown)
 
     acct = portfolio()["account"]
 
@@ -256,12 +248,48 @@ def performance():
     }
 
 
+def signal(symbol, price=None):
+    symbol = symbol.upper().strip()
+    state = _load()
+    pos = state.get("positions", {}).get(symbol)
+
+    if pos:
+        avg = float(pos["avg_price"])
+        last = float(price) if price else float(pos.get("last_price", avg))
+        gain_pct = ((last - avg) / avg) * 100
+
+        if gain_pct >= 5:
+            action = "SELL"
+            confidence = 85
+            reason = "Take profit target reached"
+        elif gain_pct <= -3:
+            action = "SELL"
+            confidence = 90
+            reason = "Stop loss triggered"
+        else:
+            action = "HOLD"
+            confidence = 75
+            reason = "Position is still inside hold range"
+
+        return {
+            "symbol": symbol,
+            "action": action,
+            "confidence": confidence,
+            "avg_price": round(avg, 2),
+            "last_price": round(last, 2),
+            "gain_pct": round(gain_pct, 2),
+            "reason": reason
+        }
+
+    return {
+        "symbol": symbol,
+        "action": "WATCH",
+        "confidence": 60,
+        "reason": "No position yet. Scanner not active yet."
+    }
+
+
 def reset_paper_account():
     state = _default_state()
     _save(state)
-
-    return {
-        "status": "reset",
-        "message": "Paper account reset to starting balance",
-        "portfolio": portfolio()
-    }
+    return {"status": "reset", "portfolio": portfolio()}
