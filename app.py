@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request
-from paper_engine import portfolio, place_paper_trade, performance, reset_paper_account
+from paper_engine import portfolio, place_paper_trade, performance, reset_paper_account, signal
 
 app = Flask(__name__)
 
@@ -7,7 +7,7 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return jsonify({
-        "status": "Harold AI V10.3 running",
+        "status": "Harold AI V10.4 running",
         "mode": "PAPER",
         "dashboard": "/dashboard",
         "portfolio_url": "/paper/portfolio",
@@ -25,10 +25,15 @@ def paper_performance():
     return jsonify(performance())
 
 
+@app.route("/signal/<symbol>")
+def trade_signal(symbol):
+    price = request.args.get("price")
+    return jsonify(signal(symbol, price))
+
+
 @app.route("/paper/trade", methods=["POST"])
 def paper_trade():
     data = request.get_json()
-
     return jsonify(place_paper_trade(
         symbol=data.get("symbol"),
         action=data.get("action"),
@@ -58,24 +63,18 @@ def reset_account():
 def dashboard():
     return """
     <html>
-    <head>
-        <title>Harold AI V10.3</title>
-    </head>
-
     <body style="font-family:Arial;padding:40px;">
-
-        <h1>🚀 Harold AI V10.3</h1>
+        <h1>🚀 Harold AI V10.4</h1>
         <h2>Paper Trading Dashboard</h2>
 
         <p><a href="/paper/portfolio">View Portfolio JSON</a></p>
         <p><a href="/paper/performance">View Performance JSON</a></p>
+        <p><a href="/signal/AAPL?price=240">Check AAPL Signal</a></p>
 
         <hr>
 
         <h2>Execute Paper Trade</h2>
-
         <form action="/paper/trade-form" method="post">
-
             Symbol<br>
             <input name="symbol" value="AAPL"><br><br>
 
@@ -96,14 +95,6 @@ def dashboard():
 
             <button type="submit">Execute Paper Trade</button>
         </form>
-
-        <hr>
-
-        <h2>Reset Paper Account</h2>
-        <form action="/paper/reset" method="post">
-            <button type="submit">Reset Account</button>
-        </form>
-
     </body>
     </html>
     """
