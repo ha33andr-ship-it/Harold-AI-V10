@@ -18,31 +18,18 @@ app = Flask(__name__)
 
 def market_is_open():
     now = datetime.now(ZoneInfo("America/New_York"))
-
-    # Monday = 0, Friday = 4
     if now.weekday() > 4:
         return False
-
-    current_minutes = now.hour * 60 + now.minute
-    open_minutes = 9 * 60 + 30
-    close_minutes = 16 * 60
-
-    return open_minutes <= current_minutes <= close_minutes
+    mins = now.hour * 60 + now.minute
+    return (9 * 60 + 30) <= mins <= (16 * 60)
 
 
 @app.route("/")
 def home():
     return jsonify({
-        "status": "Harold AI V11.3 running",
-        "mode": "PAPER",
+        "status": "Harold AI V12 running",
         "dashboard": "/dashboard",
-        "portfolio_url": "/paper/portfolio",
-        "performance_url": "/paper/performance",
-        "scan_url": "/scan",
-        "auto_trade_url": "/auto-trade",
-        "manage_url": "/manage",
-        "autopilot_url": "/autopilot",
-        "market_hours_guard": True
+        "mode": "PAPER"
     })
 
 
@@ -58,8 +45,7 @@ def paper_performance():
 
 @app.route("/signal/<symbol>")
 def trade_signal(symbol):
-    price = request.args.get("price")
-    return jsonify(signal(symbol, price))
+    return jsonify(signal(symbol, request.args.get("price")))
 
 
 @app.route("/quote/<symbol>")
@@ -77,39 +63,6 @@ def scan():
     return jsonify(scan_market())
 
 
-@app.route("/auto-trade")
-def auto_trade():
-    results = scan_market()
-
-    buys = [
-        r for r in results
-        if r.get("signal") == "BUY" and r.get("confidence", 0) >= 80
-    ]
-
-    if not buys:
-        return jsonify({
-            "status": "no_trade",
-            "reason": "No BUY signal above confidence threshold",
-            "scan": results
-        })
-
-    best = buys[0]
-
-    trade = place_paper_trade(
-        symbol=best["symbol"],
-        action="BUY",
-        price=float(best["price"]),
-        confidence=float(best["confidence"]),
-        reason="Auto trade: " + best.get("reason", "")
-    )
-
-    return jsonify({
-        "status": "auto_trade_attempted",
-        "selected": best,
-        "trade_result": trade
-    })
-
-
 @app.route("/manage")
 def manage():
     return jsonify(manage_positions())
@@ -120,18 +73,20 @@ def autopilot():
     if not market_is_open():
         return jsonify({
             "status": "market_closed",
-            "market": "NYSE / NASDAQ",
-            "timezone": "America/New_York",
-            "message": "Autopilot is waiting for the next market session."
+            "message": "Autopilot is waiting for the next market session.",
+            "timezone": "America/New_York"
         })
+    return jsonify(run_autopilot())
 
+
+@app.route("/autopilot-force")
+def autopilot_force():
     return jsonify(run_autopilot())
 
 
 @app.route("/paper/trade", methods=["POST"])
 def paper_trade():
     data = request.get_json()
-
     return jsonify(place_paper_trade(
         symbol=data.get("symbol"),
         action=data.get("action"),
@@ -160,81 +115,114 @@ def reset_account():
 @app.route("/dashboard")
 def dashboard():
     return """
-    <html>
-    <head>
-        <title>Harold AI V11.3 Dashboard</title>
-    </head>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Harold AI V12</title>
+<meta http-equiv="refresh" content="60">
+<style>
+body { font-family: Arial; background:#0f172a; color:white; padding:30px; }
+.card { background:#1e293b; padding:20px; border-radius:12px; margin:10px; display:inline-block; min-width:170px; }
+.green { color:#22c55e; }
+.red { color:#ef4444; }
+table { width:100%; border-collapse:collapse; margin-top:20px; background:#1e293b; }
+th,td { padding:10px; border-bottom:1px solid #334155; text-align:left; }
+button { padding:10px 18px; margin:6px; border-radius:8px; border:none; cursor:pointer; }
+.buy { background:#22c55e; }
+.sell { background:#ef4444; color:white; }
+.action { background:#38bdf8; }
+</style>
+</head>
+<body>
 
-    <body style="font-family:Arial;padding:40px;max-width:900px;">
+<h1>🚀 Harold AI V12 Paper Trading Dashboard</h1>
 
-        <h1>🚀 Harold AI V11.3</h1>
-        <h2>Autonomous Paper Trading Dashboard</h2>
+<button class="action" onclick="location.href='/autopilot'">Run AutoPilot</button>
+<button class="action" onclick="location.href='/manage'">Manage Positions</button>
+<button class="action" onclick="location.href='/scan'">Scan Market</button>
+<button class="action" onclick="location.reload()">Refresh</button>
 
-        <hr>
+<div id="cards"></div>
 
-        <h3>Portfolio</h3>
-        <p><a href="/paper/portfolio">📁 Portfolio</a></p>
-        <p><a href="/paper/performance">📈 Performance</a></p>
+<h2>Open Positions</h2>
+<table id="positions"></table>
 
-        <hr>
+<h2>Recent Trades</h2>
+<table id="trades"></table>
 
-        <h3>Market Scanner</h3>
-        <p><a href="/scan">🔍 Scan Market</a></p>
-        <p><a href="/quote/AAPL">💲 Live Quote AAPL</a></p>
-        <p><a href="/analyze/AAPL">📊 Analyze AAPL</a></p>
-        <p><a href="/signal/AAPL?price=240">📡 Check AAPL Position Signal</a></p>
+<h2>Performance</h2>
+<table id="performance"></table>
 
-        <hr>
+<h2>Manual Trade</h2>
+<form action="/paper/trade-form" method="post">
+Symbol <input name="symbol" value="AAPL">
+Action <select name="action"><option>BUY</option><option>SELL</option></select>
+Price <input name="price" value="225">
+Confidence <input name="confidence" value="85">
+Reason <input name="reason" value="Dashboard Trade">
+<button class="buy" type="submit">Submit Trade</button>
+</form>
 
-        <h3>Automation</h3>
-        <p><a href="/auto-trade">🤖 Auto Buy Best Stock</a></p>
-        <p><a href="/manage">🛡 Manage Open Positions</a></p>
-        <p><a href="/autopilot">🚀 Run Full AutoPilot</a></p>
+<script>
+async function loadDashboard(){
+    const p = await fetch('/paper/portfolio').then(r=>r.json());
+    const perf = await fetch('/paper/performance').then(r=>r.json());
 
-        <p><b>Note:</b> Full AutoPilot only trades during normal U.S. market hours.</p>
+    const acct = p.account;
 
-        <hr>
+    document.getElementById('cards').innerHTML = `
+        <div class="card"><h3>Equity</h3><h2>$${acct.equity}</h2></div>
+        <div class="card"><h3>Cash</h3><h2>$${acct.cash}</h2></div>
+        <div class="card"><h3>Total P/L</h3><h2 class="${acct.total_pl >= 0 ? 'green':'red'}">$${acct.total_pl}</h2></div>
+        <div class="card"><h3>Return</h3><h2>${acct.total_return_pct}%</h2></div>
+        <div class="card"><h3>Positions</h3><h2>${acct.open_positions}/${acct.max_open_positions}</h2></div>
+        <div class="card"><h3>Win Rate</h3><h2>${perf.win_rate}%</h2></div>
+    `;
 
-        <h3>Manual Trade</h3>
+    let posHtml = `<tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Last</th><th>Value</th><th>P/L</th><th>%</th></tr>`;
+    p.positions.forEach(x=>{
+        posHtml += `<tr>
+            <td>${x.symbol}</td>
+            <td>${x.qty}</td>
+            <td>$${x.avg_price}</td>
+            <td>$${x.last_price}</td>
+            <td>$${x.market_value}</td>
+            <td class="${x.unrealized_pl >= 0 ? 'green':'red'}">$${x.unrealized_pl}</td>
+            <td>${x.unrealized_pl_pct}%</td>
+        </tr>`;
+    });
+    document.getElementById('positions').innerHTML = posHtml;
 
-        <form action="/paper/trade-form" method="post">
+    let tradeHtml = `<tr><th>Time</th><th>Symbol</th><th>Action</th><th>Qty</th><th>Price</th><th>P/L</th><th>Reason</th></tr>`;
+    p.recent_trades.forEach(t=>{
+        tradeHtml += `<tr>
+            <td>${t.time}</td>
+            <td>${t.symbol}</td>
+            <td>${t.action}</td>
+            <td>${t.qty}</td>
+            <td>$${t.price}</td>
+            <td class="${t.realized_pl >= 0 ? 'green':'red'}">$${t.realized_pl}</td>
+            <td>${t.reason}</td>
+        </tr>`;
+    });
+    document.getElementById('trades').innerHTML = tradeHtml;
 
-            Symbol<br>
-            <input name="symbol" value="AAPL"><br><br>
+    document.getElementById('performance').innerHTML = `
+        <tr><th>Total Trades</th><td>${perf.total_trades}</td></tr>
+        <tr><th>Closed Trades</th><td>${perf.closed_trades}</td></tr>
+        <tr><th>Winning Trades</th><td>${perf.winning_trades}</td></tr>
+        <tr><th>Losing Trades</th><td>${perf.losing_trades}</td></tr>
+        <tr><th>Realized P/L</th><td>$${perf.realized_pl}</td></tr>
+        <tr><th>Profit Factor</th><td>${perf.profit_factor}</td></tr>
+    `;
+}
+loadDashboard();
+</script>
 
-            Action<br>
-            <select name="action">
-                <option>BUY</option>
-                <option>SELL</option>
-            </select><br><br>
+</body>
+</html>
+"""
 
-            Price<br>
-            <input name="price" value="225"><br><br>
-
-            Confidence<br>
-            <input name="confidence" value="85"><br><br>
-
-            Reason<br>
-            <input name="reason" value="Dashboard Trade"><br><br>
-
-            <button type="submit">Execute Paper Trade</button>
-
-        </form>
-
-        <hr>
-
-        <h3>Reset Paper Account</h3>
-        <form action="/paper/reset" method="post">
-            <button type="submit">Reset Account</button>
-        </form>
-
-    </body>
-    </html>
-    """
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
