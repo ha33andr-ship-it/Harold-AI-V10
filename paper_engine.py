@@ -8,7 +8,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = DATA_DIR / "paper_state.json"
 
 STARTING_BALANCE = 10000.00
+
 MAX_TRADES_PER_DAY = 3
+MAX_OPEN_POSITIONS = 3
 MAX_POSITION_SIZE_PCT = 0.10
 MIN_CONFIDENCE = 70
 
@@ -60,9 +62,7 @@ def _calculate_equity(state):
     invested = 0.0
 
     for p in state.get("positions", {}).values():
-        qty = float(p["qty"])
-        last_price = float(p.get("last_price", p["avg_price"]))
-        invested += qty * last_price
+        invested += float(p["qty"]) * float(p.get("last_price", p["avg_price"]))
 
     return float(state["cash"]) + invested
 
@@ -96,9 +96,8 @@ def portfolio():
             "last_price": round(last_price, 2),
             "market_value": round(market_value, 2),
             "unrealized_pl": round(market_value - cost, 2),
-            "unrealized_pl_pct": round(
-                ((last_price - avg_price) / avg_price) * 100, 2
-            ) if avg_price else 0
+            "unrealized_pl_pct": round(((last_price - avg_price) / avg_price) * 100, 2)
+            if avg_price else 0
         })
 
     equity = float(state["cash"]) + invested
@@ -109,11 +108,11 @@ def portfolio():
             "equity": round(equity, 2),
             "starting_balance": STARTING_BALANCE,
             "total_pl": round(equity - STARTING_BALANCE, 2),
-            "total_return_pct": round(
-                ((equity - STARTING_BALANCE) / STARTING_BALANCE) * 100, 2
-            ),
+            "total_return_pct": round(((equity - STARTING_BALANCE) / STARTING_BALANCE) * 100, 2),
             "trades_today": _today_trade_count(state),
-            "max_trades_per_day": MAX_TRADES_PER_DAY
+            "max_trades_per_day": MAX_TRADES_PER_DAY,
+            "open_positions": len(state.get("positions", {})),
+            "max_open_positions": MAX_OPEN_POSITIONS
         },
         "positions": positions,
         "recent_trades": list(reversed(state.get("trades", [])[-25:]))
@@ -134,11 +133,16 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
 
     state = _load()
 
-    # IMPORTANT:
-    # Daily trade limit blocks new BUY orders only.
-    # SELL orders must still be allowed so Harold AI can exit positions.
-    if action == "BUY" and _today_trade_count(state) >= MAX_TRADES_PER_DAY:
-        return {"status": "blocked", "reason": "Max trades per day reached"}
+    if action == "BUY":
+        if symbol not in state["positions"]:
+            if len(state["positions"]) >= MAX_OPEN_POSITIONS:
+                return {
+                    "status": "blocked",
+                    "reason": f"Maximum open positions ({MAX_OPEN_POSITIONS}) reached"
+                }
+
+        if _today_trade_count(state) >= MAX_TRADES_PER_DAY:
+            return {"status": "blocked", "reason": "Max trades per day reached"}
 
     equity = _calculate_equity(state)
     qty = int((equity * MAX_POSITION_SIZE_PCT) // price)
@@ -182,8 +186,6 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
 
         held_qty = float(pos["qty"])
         avg_price = float(pos["avg_price"])
-
-        # Sell up to the normal position-size qty, but never more than held.
         sell_qty = min(qty, held_qty)
 
         proceeds = sell_qty * price
@@ -256,14 +258,9 @@ def performance():
 
     for point in state.get("equity_history", []):
         eq = float(point["equity"])
-
-        if eq > peak:
-            peak = eq
-
+        peak = max(peak, eq)
         drawdown = ((peak - eq) / peak) * 100 if peak else 0
-
-        if drawdown > max_drawdown:
-            max_drawdown = drawdown
+        max_drawdown = max(max_drawdown, drawdown)
 
     acct = portfolio()["account"]
 
@@ -281,7 +278,9 @@ def performance():
         "cash": acct["cash"],
         "equity": acct["equity"],
         "total_pl": acct["total_pl"],
-        "total_return_pct": acct["total_return_pct"]
+        "total_return_pct": acct["total_return_pct"],
+        "open_positions": acct["open_positions"],
+        "max_open_positions": acct["max_open_positions"]
     }
 
 
