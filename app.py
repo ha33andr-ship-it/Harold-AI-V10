@@ -7,6 +7,7 @@ from paper_engine import (
     signal,
 )
 from market_scanner import get_quote, analyze_symbol, scan_market
+from autopilot import manage_positions, run_autopilot
 
 app = Flask(__name__)
 
@@ -14,13 +15,15 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return jsonify({
-        "status": "Harold AI V10.6 running",
+        "status": "Harold AI V11 running",
         "mode": "PAPER",
         "dashboard": "/dashboard",
         "portfolio_url": "/paper/portfolio",
         "performance_url": "/paper/performance",
         "scan_url": "/scan",
-        "auto_trade_url": "/auto-trade"
+        "auto_trade_url": "/auto-trade",
+        "manage_url": "/manage",
+        "autopilot_url": "/autopilot"
     })
 
 
@@ -88,6 +91,16 @@ def auto_trade():
     })
 
 
+@app.route("/manage")
+def manage():
+    return jsonify(manage_positions())
+
+
+@app.route("/autopilot")
+def autopilot():
+    return jsonify(run_autopilot())
+
+
 @app.route("/paper/trade", methods=["POST"])
 def paper_trade():
     data = request.get_json()
@@ -121,22 +134,42 @@ def reset_account():
 def dashboard():
     return """
     <html>
-    <body style="font-family:Arial;padding:40px;">
-        <h1>🚀 Harold AI V10.6</h1>
-        <h2>Paper Trading Dashboard</h2>
+    <head>
+        <title>Harold AI V11 Dashboard</title>
+    </head>
 
-        <p><a href="/paper/portfolio">View Portfolio JSON</a></p>
-        <p><a href="/paper/performance">View Performance JSON</a></p>
-        <p><a href="/scan">Run Market Scan</a></p>
-        <p><a href="/auto-trade">Run Auto Paper Trade</a></p>
-        <p><a href="/analyze/AAPL">Analyze AAPL</a></p>
-        <p><a href="/quote/AAPL">Quote AAPL</a></p>
-        <p><a href="/signal/AAPL?price=240">Check AAPL Position Signal</a></p>
+    <body style="font-family:Arial;padding:40px;max-width:900px;">
+
+        <h1>🚀 Harold AI V11</h1>
+        <h2>Autonomous Paper Trading Dashboard</h2>
 
         <hr>
 
-        <h2>Execute Paper Trade</h2>
+        <h3>Portfolio</h3>
+        <p><a href="/paper/portfolio">📁 Portfolio</a></p>
+        <p><a href="/paper/performance">📈 Performance</a></p>
+
+        <hr>
+
+        <h3>Market Scanner</h3>
+        <p><a href="/scan">🔍 Scan Market</a></p>
+        <p><a href="/quote/AAPL">💲 Live Quote AAPL</a></p>
+        <p><a href="/analyze/AAPL">📊 Analyze AAPL</a></p>
+        <p><a href="/signal/AAPL?price=240">📡 Check AAPL Position Signal</a></p>
+
+        <hr>
+
+        <h3>Automation</h3>
+        <p><a href="/auto-trade">🤖 Auto Buy Best Stock</a></p>
+        <p><a href="/manage">🛡 Manage Open Positions</a></p>
+        <p><a href="/autopilot">🚀 Run Full AutoPilot</a></p>
+
+        <hr>
+
+        <h3>Manual Trade</h3>
+
         <form action="/paper/trade-form" method="post">
+
             Symbol<br>
             <input name="symbol" value="AAPL"><br><br>
 
@@ -156,7 +189,16 @@ def dashboard():
             <input name="reason" value="Dashboard Trade"><br><br>
 
             <button type="submit">Execute Paper Trade</button>
+
         </form>
+
+        <hr>
+
+        <h3>Reset Paper Account</h3>
+        <form action="/paper/reset" method="post">
+            <button type="submit">Reset Account</button>
+        </form>
+
     </body>
     </html>
     """
