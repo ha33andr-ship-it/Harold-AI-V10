@@ -39,6 +39,7 @@ def _load():
         state = _default_state()
         _save(state)
         return state
+
     try:
         return json.loads(STATE_FILE.read_text())
     except Exception:
@@ -49,13 +50,20 @@ def _load():
 
 def _today_trade_count(state):
     today = date.today().isoformat()
-    return sum(1 for t in state.get("trades", []) if t.get("time", "").startswith(today))
+    return sum(
+        1 for t in state.get("trades", [])
+        if t.get("time", "").startswith(today)
+    )
 
 
 def _calculate_equity(state):
     invested = 0.0
+
     for p in state.get("positions", {}).values():
-        invested += float(p["qty"]) * float(p.get("last_price", p["avg_price"]))
+        qty = float(p["qty"])
+        last_price = float(p.get("last_price", p["avg_price"]))
+        invested += qty * last_price
+
     return float(state["cash"]) + invested
 
 
@@ -73,9 +81,10 @@ def portfolio():
     invested = 0.0
 
     for symbol, p in state.get("positions", {}).items():
-        last_price = float(p.get("last_price", p["avg_price"]))
         qty = float(p["qty"])
         avg_price = float(p["avg_price"])
+        last_price = float(p.get("last_price", avg_price))
+
         market_value = qty * last_price
         cost = qty * avg_price
         invested += market_value
@@ -86,7 +95,10 @@ def portfolio():
             "avg_price": round(avg_price, 2),
             "last_price": round(last_price, 2),
             "market_value": round(market_value, 2),
-            "unrealized_pl": round(market_value - cost, 2)
+            "unrealized_pl": round(market_value - cost, 2),
+            "unrealized_pl_pct": round(
+                ((last_price - avg_price) / avg_price) * 100, 2
+            ) if avg_price else 0
         })
 
     equity = float(state["cash"]) + invested
@@ -97,6 +109,9 @@ def portfolio():
             "equity": round(equity, 2),
             "starting_balance": STARTING_BALANCE,
             "total_pl": round(equity - STARTING_BALANCE, 2),
+            "total_return_pct": round(
+                ((equity - STARTING_BALANCE) / STARTING_BALANCE) * 100, 2
+            ),
             "trades_today": _today_trade_count(state),
             "max_trades_per_day": MAX_TRADES_PER_DAY
         },
@@ -119,7 +134,10 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
 
     state = _load()
 
-    if _today_trade_count(state) >= MAX_TRADES_PER_DAY:
+    # IMPORTANT:
+    # Daily trade limit blocks new BUY orders only.
+    # SELL orders must still be allowed so Harold AI can exit positions.
+    if action == "BUY" and _today_trade_count(state) >= MAX_TRADES_PER_DAY:
         return {"status": "blocked", "reason": "Max trades per day reached"}
 
     equity = _calculate_equity(state)
@@ -143,6 +161,7 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
             old_avg = float(pos["avg_price"])
             new_qty = old_qty + qty
             new_avg = ((old_qty * old_avg) + cost) / new_qty
+
             pos["qty"] = new_qty
             pos["avg_price"] = new_avg
             pos["last_price"] = price
@@ -161,13 +180,15 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
         if not pos:
             return {"status": "blocked", "reason": "No position to sell"}
 
-        sell_qty = min(qty, float(pos["qty"]))
+        held_qty = float(pos["qty"])
         avg_price = float(pos["avg_price"])
+
+        # Sell up to the normal position-size qty, but never more than held.
+        sell_qty = min(qty, held_qty)
+
         proceeds = sell_qty * price
-
         realized_pl = (price - avg_price) * sell_qty
-
-        remaining = float(pos["qty"]) - sell_qty
+        remaining = held_qty - sell_qty
 
         if remaining <= 0:
             del state["positions"][symbol]
@@ -207,10 +228,20 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
 def performance():
     state = _load()
     trades = state.get("trades", [])
+
     sell_trades = [t for t in trades if t.get("action") == "SELL"]
 
-    wins = [float(t.get("realized_pl", 0)) for t in sell_trades if float(t.get("realized_pl", 0)) > 0]
-    losses = [abs(float(t.get("realized_pl", 0))) for t in sell_trades if float(t.get("realized_pl", 0)) < 0]
+    wins = [
+        float(t.get("realized_pl", 0))
+        for t in sell_trades
+        if float(t.get("realized_pl", 0)) > 0
+    ]
+
+    losses = [
+        abs(float(t.get("realized_pl", 0)))
+        for t in sell_trades
+        if float(t.get("realized_pl", 0)) < 0
+    ]
 
     closed_trades = len(sell_trades)
     realized_pl = sum(float(t.get("realized_pl", 0)) for t in sell_trades)
@@ -225,9 +256,14 @@ def performance():
 
     for point in state.get("equity_history", []):
         eq = float(point["equity"])
-        peak = max(peak, eq)
+
+        if eq > peak:
+            peak = eq
+
         drawdown = ((peak - eq) / peak) * 100 if peak else 0
-        max_drawdown = max(max_drawdown, drawdown)
+
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
 
     acct = portfolio()["account"]
 
@@ -244,7 +280,8 @@ def performance():
         "max_drawdown_pct": round(max_drawdown, 2),
         "cash": acct["cash"],
         "equity": acct["equity"],
-        "total_pl": acct["total_pl"]
+        "total_pl": acct["total_pl"],
+        "total_return_pct": acct["total_return_pct"]
     }
 
 
@@ -256,7 +293,7 @@ def signal(symbol, price=None):
     if pos:
         avg = float(pos["avg_price"])
         last = float(price) if price else float(pos.get("last_price", avg))
-        gain_pct = ((last - avg) / avg) * 100
+        gain_pct = ((last - avg) / avg) * 100 if avg else 0
 
         if gain_pct >= 5:
             action = "SELL"
@@ -292,4 +329,9 @@ def signal(symbol, price=None):
 def reset_paper_account():
     state = _default_state()
     _save(state)
-    return {"status": "reset", "portfolio": portfolio()}
+
+    return {
+        "status": "reset",
+        "message": "Paper account reset to starting balance",
+        "portfolio": portfolio()
+    }
