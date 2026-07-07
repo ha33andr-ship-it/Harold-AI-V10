@@ -8,10 +8,15 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = DATA_DIR / "paper_state.json"
 
 STARTING_BALANCE = 10000.00
+
 MAX_TRADES_PER_DAY = 3
 MAX_OPEN_POSITIONS = 3
 MAX_POSITION_SIZE_PCT = 0.10
 MIN_CONFIDENCE = 70
+
+# Exit rules for testing
+TAKE_PROFIT_PCT = 2.0
+STOP_LOSS_PCT = -1.5
 
 DEFAULT_STATE = {
     "cash": STARTING_BALANCE,
@@ -45,11 +50,14 @@ def _load():
 
 def _today_trade_count(state):
     today = date.today().isoformat()
-    return sum(1 for t in state.get("trades", []) if t.get("time", "").startswith(today))
+    return sum(
+        1 for t in state.get("trades", [])
+        if t.get("time", "").startswith(today)
+    )
 
 
 def _calculate_equity(state):
-    invested = 0
+    invested = 0.0
     for p in state.get("positions", {}).values():
         invested += float(p["qty"]) * float(p.get("last_price", p["avg_price"]))
     return float(state["cash"]) + invested
@@ -65,7 +73,7 @@ def _record_equity(state):
 
 def update_position_price(symbol, price):
     state = _load()
-    symbol = symbol.upper()
+    symbol = symbol.upper().strip()
 
     if symbol in state["positions"]:
         state["positions"][symbol]["last_price"] = float(price)
@@ -78,7 +86,7 @@ def update_position_price(symbol, price):
 def portfolio():
     state = _load()
     positions = []
-    invested = 0
+    invested = 0.0
 
     for symbol, p in state.get("positions", {}).items():
         qty = float(p["qty"])
@@ -123,6 +131,9 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
     price = float(price)
     confidence = float(confidence)
 
+    if price <= 0:
+        return {"status": "blocked", "reason": "Price must be greater than 0"}
+
     if confidence < MIN_CONFIDENCE:
         return {"status": "blocked", "reason": "Confidence below minimum"}
 
@@ -130,7 +141,10 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
 
     if action == "BUY":
         if symbol not in state["positions"] and len(state["positions"]) >= MAX_OPEN_POSITIONS:
-            return {"status": "blocked", "reason": f"Maximum open positions ({MAX_OPEN_POSITIONS}) reached"}
+            return {
+                "status": "blocked",
+                "reason": f"Maximum open positions ({MAX_OPEN_POSITIONS}) reached"
+            }
 
         if _today_trade_count(state) >= MAX_TRADES_PER_DAY:
             return {"status": "blocked", "reason": "Max trades per day reached"}
@@ -164,7 +178,7 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
             }
 
         state["cash"] = float(state["cash"]) - cost
-        realized_pl = 0
+        realized_pl = 0.0
 
     elif action == "SELL":
         return close_position(symbol, price, confidence, reason)
@@ -187,7 +201,12 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
     _record_equity(state)
     _save(state)
 
-    return {"status": "executed", "mode": "PAPER", **trade, "portfolio": portfolio()["account"]}
+    return {
+        "status": "executed",
+        "mode": "PAPER",
+        **trade,
+        "portfolio": portfolio()["account"]
+    }
 
 
 def close_position(symbol, price, confidence=90, reason="Auto exit"):
@@ -223,7 +242,12 @@ def close_position(symbol, price, confidence=90, reason="Auto exit"):
     _record_equity(state)
     _save(state)
 
-    return {"status": "executed", "mode": "PAPER", **trade, "portfolio": portfolio()["account"]}
+    return {
+        "status": "executed",
+        "mode": "PAPER",
+        **trade,
+        "portfolio": portfolio()["account"]
+    }
 
 
 def signal(symbol, price=None):
@@ -232,13 +256,18 @@ def signal(symbol, price=None):
     pos = state.get("positions", {}).get(symbol)
 
     if not pos:
-        return {"symbol": symbol, "action": "WATCH", "confidence": 60, "reason": "No position yet"}
+        return {
+            "symbol": symbol,
+            "action": "WATCH",
+            "confidence": 60,
+            "reason": "No position yet"
+        }
 
     avg = float(pos["avg_price"])
     last = float(price) if price else float(pos.get("last_price", avg))
-    gain_pct = ((last - avg) / avg) * 100
+    gain_pct = ((last - avg) / avg) * 100 if avg else 0
 
-    if gain_pct >= 5:
+    if gain_pct >= TAKE_PROFIT_PCT:
         return {
             "symbol": symbol,
             "action": "SELL",
@@ -246,10 +275,11 @@ def signal(symbol, price=None):
             "avg_price": round(avg, 2),
             "last_price": round(last, 2),
             "gain_pct": round(gain_pct, 2),
-            "reason": "Take profit target reached"
+            "take_profit_pct": TAKE_PROFIT_PCT,
+            "reason": f"Take profit target reached: {TAKE_PROFIT_PCT}%"
         }
 
-    if gain_pct <= -3:
+    if gain_pct <= STOP_LOSS_PCT:
         return {
             "symbol": symbol,
             "action": "SELL",
@@ -257,7 +287,8 @@ def signal(symbol, price=None):
             "avg_price": round(avg, 2),
             "last_price": round(last, 2),
             "gain_pct": round(gain_pct, 2),
-            "reason": "Stop loss triggered"
+            "stop_loss_pct": STOP_LOSS_PCT,
+            "reason": f"Stop loss triggered: {STOP_LOSS_PCT}%"
         }
 
     return {
@@ -267,6 +298,8 @@ def signal(symbol, price=None):
         "avg_price": round(avg, 2),
         "last_price": round(last, 2),
         "gain_pct": round(gain_pct, 2),
+        "take_profit_pct": TAKE_PROFIT_PCT,
+        "stop_loss_pct": STOP_LOSS_PCT,
         "reason": "Position is still inside hold range"
     }
 
@@ -302,11 +335,18 @@ def performance():
         "total_pl": acct["total_pl"],
         "total_return_pct": acct["total_return_pct"],
         "open_positions": acct["open_positions"],
-        "max_open_positions": acct["max_open_positions"]
+        "max_open_positions": acct["max_open_positions"],
+        "take_profit_pct": TAKE_PROFIT_PCT,
+        "stop_loss_pct": STOP_LOSS_PCT
     }
 
 
 def reset_paper_account():
     state = _default_state()
     _save(state)
-    return {"status": "reset", "portfolio": portfolio()}
+
+    return {
+        "status": "reset",
+        "message": "Paper account reset to starting balance",
+        "portfolio": portfolio()
+    }
