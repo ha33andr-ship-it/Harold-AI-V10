@@ -55,6 +55,7 @@ def manage_positions():
                 "reason": sell_reason,
                 "trade_result": trade
             })
+
         else:
             actions.append({
                 "symbol": symbol,
@@ -73,7 +74,6 @@ def manage_positions():
 
 def run_autopilot():
     managed = manage_positions()
-
     scan = scan_market()
 
     buys = [
