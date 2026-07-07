@@ -1,15 +1,17 @@
 from flask import Flask, jsonify, request
-from paper_engine import portfolio, place_paper_trade
+from paper_engine import portfolio, place_paper_trade, performance, reset_paper_account
 
 app = Flask(__name__)
+
 
 @app.route("/")
 def home():
     return jsonify({
-        "status": "Harold AI V10.2 running",
+        "status": "Harold AI V10.3 running",
         "mode": "PAPER",
         "dashboard": "/dashboard",
-        "portfolio_url": "/paper/portfolio"
+        "portfolio_url": "/paper/portfolio",
+        "performance_url": "/paper/performance"
     })
 
 
@@ -18,42 +20,55 @@ def paper_portfolio():
     return jsonify(portfolio())
 
 
+@app.route("/paper/performance")
+def paper_performance():
+    return jsonify(performance())
+
+
 @app.route("/paper/trade", methods=["POST"])
 def paper_trade():
     data = request.get_json()
 
-    return jsonify(
-        place_paper_trade(
-            symbol=data.get("symbol"),
-            action=data.get("action"),
-            price=float(data.get("price")),
-            confidence=float(data.get("confidence")),
-            reason=data.get("reason", "API Trade")
-        )
-    )
+    return jsonify(place_paper_trade(
+        symbol=data.get("symbol"),
+        action=data.get("action"),
+        price=float(data.get("price")),
+        confidence=float(data.get("confidence")),
+        reason=data.get("reason", "API Trade")
+    ))
+
+
+@app.route("/paper/trade-form", methods=["POST"])
+def trade_form():
+    return jsonify(place_paper_trade(
+        symbol=request.form.get("symbol"),
+        action=request.form.get("action"),
+        price=float(request.form.get("price")),
+        confidence=float(request.form.get("confidence")),
+        reason=request.form.get("reason", "Dashboard Trade")
+    ))
+
+
+@app.route("/paper/reset", methods=["POST"])
+def reset_account():
+    return jsonify(reset_paper_account())
 
 
 @app.route("/dashboard")
 def dashboard():
-
     return """
     <html>
-
     <head>
-        <title>Harold AI V10.2</title>
+        <title>Harold AI V10.3</title>
     </head>
 
     <body style="font-family:Arial;padding:40px;">
 
-        <h1>🚀 Harold AI V10.2</h1>
-
+        <h1>🚀 Harold AI V10.3</h1>
         <h2>Paper Trading Dashboard</h2>
 
-        <p>
-            <a href="/paper/portfolio">
-                View Portfolio
-            </a>
-        </p>
+        <p><a href="/paper/portfolio">View Portfolio JSON</a></p>
+        <p><a href="/paper/performance">View Performance JSON</a></p>
 
         <hr>
 
@@ -79,30 +94,19 @@ def dashboard():
             Reason<br>
             <input name="reason" value="Dashboard Trade"><br><br>
 
-            <button type="submit">
-                Execute Paper Trade
-            </button>
+            <button type="submit">Execute Paper Trade</button>
+        </form>
 
+        <hr>
+
+        <h2>Reset Paper Account</h2>
+        <form action="/paper/reset" method="post">
+            <button type="submit">Reset Account</button>
         </form>
 
     </body>
-
     </html>
     """
-
-
-@app.route("/paper/trade-form", methods=["POST"])
-def trade_form():
-
-    result = place_paper_trade(
-        symbol=request.form.get("symbol"),
-        action=request.form.get("action"),
-        price=float(request.form.get("price")),
-        confidence=float(request.form.get("confidence")),
-        reason=request.form.get("reason", "Dashboard Trade")
-    )
-
-    return jsonify(result)
 
 
 if __name__ == "__main__":
