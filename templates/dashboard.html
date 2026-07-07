@@ -1,140 +1,74 @@
-from __future__ import annotations
-from dataclasses import dataclass, asdict
-from datetime import datetime, date
-from pathlib import Path
-import json
-from typing import Dict, List, Any
+@app.route("/dashboard")
+def dashboard():
+    return """
+    <html>
+    <head>
+        <title>Harold AI V11 Dashboard</title>
+    </head>
 
-DATA_DIR = Path('/tmp/harold_ai_data')
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-STATE_FILE = DATA_DIR / 'paper_state.json'
+    <body style="font-family:Arial;padding:40px;max-width:900px;">
 
-STARTING_BALANCE = 10000.00
-MAX_TRADES_PER_DAY = 3
-MAX_POSITION_SIZE_PCT = 0.10
-MIN_CONFIDENCE = 70
+        <h1>🚀 Harold AI V11</h1>
+        <h2>Autonomous Paper Trading Dashboard</h2>
 
-DEFAULT_STATE = {
-    'cash': STARTING_BALANCE,
-    'starting_balance': STARTING_BALANCE,
-    'positions': {},
-    'trades': [],
-}
+        <hr>
 
-def _load() -> Dict[str, Any]:
-    if not STATE_FILE.exists():
-        _save(DEFAULT_STATE.copy())
-    try:
-        return json.loads(STATE_FILE.read_text())
-    except Exception:
-        _save(DEFAULT_STATE.copy())
-        return DEFAULT_STATE.copy()
+        <h3>Portfolio</h3>
 
-def _save(state: Dict[str, Any]) -> None:
-    STATE_FILE.write_text(json.dumps(state, indent=2))
+        <p><a href="/paper/portfolio">📁 Portfolio</a></p>
 
-def reset_account() -> Dict[str, Any]:
-    state = DEFAULT_STATE.copy()
-    state['positions'] = {}
-    state['trades'] = []
-    _save(state)
-    return portfolio()
+        <p><a href="/paper/performance">📈 Performance</a></p>
 
-def _today_trade_count(state: Dict[str, Any]) -> int:
-    today = date.today().isoformat()
-    return sum(1 for t in state['trades'] if t['time'].startswith(today))
+        <hr>
 
-def portfolio() -> Dict[str, Any]:
-    state = _load()
-    positions = []
-    invested = 0.0
-    for symbol, p in state['positions'].items():
-        market_price = float(p.get('last_price', p['avg_price']))
-        market_value = float(p['qty']) * market_price
-        cost = float(p['qty']) * float(p['avg_price'])
-        invested += market_value
-        positions.append({
-            'symbol': symbol,
-            'qty': p['qty'],
-            'avg_price': round(p['avg_price'], 2),
-            'last_price': round(market_price, 2),
-            'market_value': round(market_value, 2),
-            'unrealized_pl': round(market_value - cost, 2),
-            'unrealized_pl_pct': round(((market_value - cost) / cost * 100) if cost else 0, 2),
-        })
-    equity = float(state['cash']) + invested
-    total_pl = equity - float(state['starting_balance'])
-    return {
-        'account': {
-            'cash': round(float(state['cash']), 2),
-            'equity': round(equity, 2),
-            'starting_balance': round(float(state['starting_balance']), 2),
-            'total_pl': round(total_pl, 2),
-            'total_return_pct': round(total_pl / float(state['starting_balance']) * 100, 2),
-            'trades_today': _today_trade_count(state),
-            'max_trades_per_day': MAX_TRADES_PER_DAY,
-        },
-        'positions': positions,
-        'recent_trades': list(reversed(state['trades'][-25:])),
-    }
+        <h3>Market Scanner</h3>
 
-def place_trade(symbol: str, action: str, price: float, confidence: float, reason: str = 'Harold AI signal') -> Dict[str, Any]:
-    symbol = symbol.upper().strip()
-    action = action.upper().strip()
-    if price <= 0:
-        return {'status': 'blocked', 'reason': 'Price must be greater than 0'}
-    if confidence < MIN_CONFIDENCE:
-        return {'status': 'blocked', 'reason': f'Confidence below {MIN_CONFIDENCE}'}
-    state = _load()
-    if _today_trade_count(state) >= MAX_TRADES_PER_DAY:
-        return {'status': 'blocked', 'reason': 'Max trades per day reached'}
+        <p><a href="/scan">🔍 Scan Market</a></p>
 
-    equity = portfolio()['account']['equity']
-    max_dollars = equity * MAX_POSITION_SIZE_PCT
-    qty = int(max_dollars // price)
-    if qty <= 0:
-        return {'status': 'blocked', 'reason': 'Not enough buying power for 10% position'}
+        <p><a href="/quote/AAPL">💲 Live Quote (AAPL)</a></p>
 
-    if action == 'BUY':
-        cost = qty * price
-        if cost > state['cash']:
-            return {'status': 'blocked', 'reason': 'Insufficient paper cash'}
-        pos = state['positions'].get(symbol)
-        if pos:
-            old_qty = float(pos['qty'])
-            old_avg = float(pos['avg_price'])
-            new_qty = old_qty + qty
-            new_avg = ((old_qty * old_avg) + cost) / new_qty
-            pos.update({'qty': new_qty, 'avg_price': new_avg, 'last_price': price})
-        else:
-            state['positions'][symbol] = {'qty': qty, 'avg_price': price, 'last_price': price}
-        state['cash'] = float(state['cash']) - cost
-    elif action == 'SELL':
-        pos = state['positions'].get(symbol)
-        if not pos:
-            return {'status': 'blocked', 'reason': 'No position to sell'}
-        sell_qty = min(qty, float(pos['qty']))
-        proceeds = sell_qty * price
-        remaining = float(pos['qty']) - sell_qty
-        if remaining <= 0:
-            del state['positions'][symbol]
-        else:
-            pos['qty'] = remaining
-            pos['last_price'] = price
-        state['cash'] = float(state['cash']) + proceeds
-        qty = sell_qty
-    else:
-        return {'status': 'blocked', 'reason': 'Action must be BUY or SELL'}
+        <p><a href="/analyze/AAPL">📊 Analyze AAPL</a></p>
 
-    trade = {
-        'time': datetime.now().isoformat(timespec='seconds'),
-        'symbol': symbol,
-        'action': action,
-        'qty': qty,
-        'price': round(price, 2),
-        'confidence': confidence,
-        'reason': reason,
-    }
-    state['trades'].append(trade)
-    _save(state)
-    return {'status': 'executed', 'mode': 'PAPER', **trade, 'portfolio': portfolio()['account']}
+        <hr>
+
+        <h3>Automation</h3>
+
+        <p><a href="/auto-trade">🤖 Auto Buy Best Stock</a></p>
+
+        <p><a href="/manage">🛡 Manage Open Positions</a></p>
+
+        <p><a href="/autopilot">🚀 Run Full AutoPilot</a></p>
+
+        <hr>
+
+        <h3>Manual Trade</h3>
+
+        <form action="/paper/trade-form" method="post">
+
+            Symbol<br>
+            <input name="symbol" value="AAPL"><br><br>
+
+            Action<br>
+            <select name="action">
+                <option>BUY</option>
+                <option>SELL</option>
+            </select><br><br>
+
+            Price<br>
+            <input name="price" value="225"><br><br>
+
+            Confidence<br>
+            <input name="confidence" value="85"><br><br>
+
+            Reason<br>
+            <input name="reason" value="Dashboard Trade"><br><br>
+
+            <button type="submit">
+                Execute Paper Trade
+            </button>
+
+        </form>
+
+    </body>
+    </html>
+    """
