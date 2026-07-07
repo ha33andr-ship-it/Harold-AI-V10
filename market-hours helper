@@ -1,0 +1,12 @@
+def market_is_open():
+    now = datetime.now(ZoneInfo("America/New_York"))
+
+    # Monday = 0 ... Friday = 4
+    if now.weekday() > 4:
+        return False
+
+    current = now.hour * 60 + now.minute
+    open_time = 9 * 60 + 30
+    close_time = 16 * 60
+
+    return open_time <= current <= close_time
