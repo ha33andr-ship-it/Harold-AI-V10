@@ -14,7 +14,6 @@ MAX_OPEN_POSITIONS = 3
 MAX_POSITION_SIZE_PCT = 0.10
 MIN_CONFIDENCE = 70
 
-# Exit rules for testing
 TAKE_PROFIT_PCT = 2.0
 STOP_LOSS_PCT = -1.5
 
@@ -45,7 +44,13 @@ def _load():
         state = _default_state()
         _save(state)
         return state
-    return json.loads(STATE_FILE.read_text())
+
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except Exception:
+        state = _default_state()
+        _save(state)
+        return state
 
 
 def _today_trade_count(state):
@@ -53,13 +58,16 @@ def _today_trade_count(state):
     return sum(
         1 for t in state.get("trades", [])
         if t.get("time", "").startswith(today)
+        and t.get("action") == "BUY"
     )
 
 
 def _calculate_equity(state):
     invested = 0.0
+
     for p in state.get("positions", {}).values():
         invested += float(p["qty"]) * float(p.get("last_price", p["avg_price"]))
+
     return float(state["cash"]) + invested
 
 
@@ -92,6 +100,7 @@ def portfolio():
         qty = float(p["qty"])
         avg = float(p["avg_price"])
         last = float(p.get("last_price", avg))
+
         value = qty * last
         cost = qty * avg
         invested += value
@@ -147,7 +156,7 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
             }
 
         if _today_trade_count(state) >= MAX_TRADES_PER_DAY:
-            return {"status": "blocked", "reason": "Max trades per day reached"}
+            return {"status": "blocked", "reason": "Max BUY trades per day reached"}
 
         equity = _calculate_equity(state)
         qty = int((equity * MAX_POSITION_SIZE_PCT) // price)
@@ -167,6 +176,7 @@ def place_paper_trade(symbol, action, price, confidence, reason="Harold AI signa
             old_avg = float(pos["avg_price"])
             new_qty = old_qty + qty
             new_avg = ((old_qty * old_avg) + cost) / new_qty
+
             pos["qty"] = new_qty
             pos["avg_price"] = new_avg
             pos["last_price"] = price
@@ -276,6 +286,7 @@ def signal(symbol, price=None):
             "last_price": round(last, 2),
             "gain_pct": round(gain_pct, 2),
             "take_profit_pct": TAKE_PROFIT_PCT,
+            "stop_loss_pct": STOP_LOSS_PCT,
             "reason": f"Take profit target reached: {TAKE_PROFIT_PCT}%"
         }
 
@@ -287,6 +298,7 @@ def signal(symbol, price=None):
             "avg_price": round(avg, 2),
             "last_price": round(last, 2),
             "gain_pct": round(gain_pct, 2),
+            "take_profit_pct": TAKE_PROFIT_PCT,
             "stop_loss_pct": STOP_LOSS_PCT,
             "reason": f"Stop loss triggered: {STOP_LOSS_PCT}%"
         }
@@ -316,7 +328,7 @@ def performance():
     realized = sum(float(t.get("realized_pl", 0)) for t in sells)
 
     win_rate = round((len(wins) / closed) * 100, 2) if closed else 0
-    profit_factor = round(sum(wins) / sum(losses), 2) if sum(losses) > 0 else None
+    profit_factor = round(sum(wins) / sum(losses), 2) if sum(losses) > 0 else 0
 
     acct = portfolio()["account"]
 
@@ -336,6 +348,8 @@ def performance():
         "total_return_pct": acct["total_return_pct"],
         "open_positions": acct["open_positions"],
         "max_open_positions": acct["max_open_positions"],
+        "buys_today": acct["trades_today"],
+        "max_buys_per_day": acct["max_trades_per_day"],
         "take_profit_pct": TAKE_PROFIT_PCT,
         "stop_loss_pct": STOP_LOSS_PCT
     }
