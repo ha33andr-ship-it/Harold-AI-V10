@@ -1,11 +1,7 @@
 from datetime import datetime, date
-from pathlib import Path
-import json
 import copy
 
-DATA_DIR = Path("/tmp/harold_ai_data")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-STATE_FILE = DATA_DIR / "paper_state.json"
+from storage_helper import load_json, save_json
 
 STARTING_BALANCE = 10000.00
 
@@ -36,21 +32,19 @@ def _default_state():
 
 
 def _save(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2))
+    save_json(state)
 
 
 def _load():
-    if not STATE_FILE.exists():
-        state = _default_state()
-        _save(state)
-        return state
+    state = load_json(_default_state())
 
-    try:
-        return json.loads(STATE_FILE.read_text())
-    except Exception:
-        state = _default_state()
-        _save(state)
-        return state
+    state.setdefault("cash", STARTING_BALANCE)
+    state.setdefault("starting_balance", STARTING_BALANCE)
+    state.setdefault("positions", {})
+    state.setdefault("trades", [])
+    state.setdefault("equity_history", [])
+
+    return state
 
 
 def _today_trade_count(state):
